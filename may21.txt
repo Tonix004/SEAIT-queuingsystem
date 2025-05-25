@@ -1,0 +1,926 @@
+from tkinter import ttk, messagebox
+from tkinter import *
+from tkinter import messagebox
+import mysql.connector
+from datetime import datetime
+from tkinter import ttk
+from tkcalendar import Calendar, DateEntry
+import threading
+import time
+
+shared_data = {
+    "queue_status": [],
+    "window_status": {},
+    "student_data": {}
+}
+
+        #REGISTRATION FORM LOGIN/SIGNUP
+
+class Login:
+    last_assigned_window_index = -1
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Login")
+        self.root.geometry("1200x673+100+100")
+        self.root.resizable(False, False)
+        self.add_student_window = None
+        self.role_var = StringVar()
+        self.role_var.set("windows")
+        self.queue_label = Label(self.root)
+        self.window_counter = 0
+        self.window_root = None
+        self.status_var = StringVar(value="Available")
+
+        try:
+            self.conn = mysql.connector.connect(
+                host="localhost",
+                user="root",
+                password="",
+                database="python1"
+            )
+            if self.conn.is_connected():
+                self.cursor = self.conn.cursor()
+        except mysql.connector.Error as e:
+            messagebox.showinfo("Error", "Database connection error: ")
+            root.destroy()
+        else:
+            print("connected")
+
+        Frame_login = Frame(self.root, bg="white")
+        Frame_login.place(x=180, y=150, width=480, height=380)
+
+        title = Label(Frame_login, text="Login", font=("Impact", 35, "bold"), fg="black", bg="white")
+        title.place(x=175, y=30)
+
+        user = Label(Frame_login, text="Username", font=("Impact", 17), fg="black", bg="white")
+        user.place(x=20, y=130)
+        self.username = Entry(Frame_login, font=("Impact", 15), bg="gray")
+        self.username.place(x=128, y=132)
+
+        password = Label(Frame_login, text="Password", font=("Impact", 17), fg="black", bg="white")
+        password.place(x=20, y=170)
+        self.password = Entry(Frame_login, show='*', font=("Impact", 15), bg="gray")
+        self.password.place(x=128, y=172)
+
+        login_btn = Button(Frame_login, command=self.check_login, text="Login", bd=0, font=("Impact", 18), fg="black",
+                           bg="gray")
+        login_btn.place(x=200, y=210)
+
+        signup_btn = Button(Frame_login, command=self.signup_window, text="Don't have an account? Click here!", bd=0,
+                            font=10, fg="black", bg="gray")
+        signup_btn.place(x=120, y=275)
+
+        # Button to open all interfaces
+        open_all_btn = Button(Frame_login, command=self.open_all_interfaces, text="Open All Interfaces", bd=0,
+                              font=("Impact", 18), fg="black", bg="gray")
+        open_all_btn.place(x=160, y=320)
+
+    def check_login(self):
+        username = self.username.get()
+        password = self.password.get()
+
+        if username == "" or password == "":
+            messagebox.showinfo("Error", "All fields are required", parent=self.root)
+        else:
+            query = "SELECT * FROM users WHERE username = %s AND password = %s"
+            self.cursor.execute(query, (username, password))
+            user_data = self.cursor.fetchone()
+
+            if user_data:
+                if user_data[3] == "admin":
+                    messagebox.showinfo("Success", "Login successful as admin", parent=self.root)
+                    self.root.withdraw()
+                    self.open_admin_interface()
+                elif user_data[3] == "windows":
+                    messagebox.showinfo("Success", "Login successful as windows user", parent=self.root)
+                    self.root.withdraw()
+                    self.open_window_interface(username)
+                elif user_data[3] == "student":
+                    messagebox.showinfo("Success", "Login successful as student", parent=self.root)
+                    self.open_student_interface(username)
+            else:
+                messagebox.showerror("Error", "Invalid username or password", parent=self.root)
+
+    def signup_window(self):
+        self.signup_window = Toplevel(self.root)
+        self.signup_window.title("Signup")
+        self.signup_window.geometry("400x350")
+
+        Label(self.signup_window, text="Signup", font=("Impact", 35, "bold")).pack()
+
+        Label(self.signup_window, text="Username:").pack()
+        self.new_username = Entry(self.signup_window)
+        self.new_username.pack()
+
+        Label(self.signup_window, text="Password:").pack()
+        self.new_password = Entry(self.signup_window, show='*')
+        self.new_password.pack()
+
+        signup_btn = Button(self.signup_window, command=self.register_user, text="Signup").pack()
+
+    def register_user(self):
+        new_username = self.new_username.get()
+        new_password = self.new_password.get()
+        new_roles = self.role_var.get()
+
+        if new_username == "" or new_password == "":
+            messagebox.showerror("Error", "All fields are required", parent=self.signup_window)
+        else:
+            query = "INSERT INTO users (username, password, role) VALUES (%s, %s, %s)"
+            values = (new_username, new_password, "windows")
+            self.cursor.execute(query, values)
+            self.conn.commit()
+
+            if new_roles == 'windows':
+                window_query = "INSERT INTO windows (window_num, status) VALUES (%s, %s)"
+                window_values = (new_username, 'Active')
+                self.cursor.execute(window_query, window_values)
+                self.conn.commit()
+
+            messagebox.showinfo("Success", "Signup successful", parent=self.signup_window)
+            self.signup_window.destroy()
+
+
+    def open_all_interfaces(self):
+        self.open_admin_interface()
+        self.open_student_interface("student")
+        self.open_window_interface("window3")
+
+
+
+
+        # STUDENTS
+    def open_student_interface(self, username):
+        self.student_root = Toplevel(self.root)
+        self.student_root.title("Student Interface")
+        self.student_root.geometry("1000x200+430+0")  # Set the geometry as needed
+        self.student_root.resizable(False, False)
+        self.student_root.configure(bg="gray")  # Set the background color of the window
+
+        # Create a frame with black background for the Treeview widget
+        frame = Frame(self.student_root, bg="gray")
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Create a Treeview widget inside the frame for displaying data in a table
+        tree = ttk.Treeview(frame, columns=("Window Number", "Assigned Queue", "Status"), show="headings")
+        tree.heading("Window Number", text="Window Number", anchor="center")  # Align text to center
+        tree.heading("Assigned Queue", text="Assigned Queue", anchor="center")  # Align text to center
+        tree.heading("Status", text="Status", anchor="center")  # Align text to center
+
+        # Configure column widths
+        tree.column("Window Number", width=200, anchor="center")
+        tree.column("Assigned Queue", width=200, anchor="center")
+        tree.column("Status", width=200, anchor="center")
+
+        # Configure the style for the Treeview headings
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=("Helvetica", 12, "bold"), foreground="black", background="white")
+        style.configure("Treeview", font=("Helvetica", 10), foreground="black", background="white")
+
+        # Apply the style to the Treeview headings
+        tree.tag_configure("heading", background="white", font=("Helvetica", 12, "bold"))
+
+        # Adjust padding for the Treeview
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Fetch data for windows and queue numbers
+        windows_data = self.fetch_windows_data()
+
+        # Insert data into the Treeview
+        for window_num, queue_num, status in windows_data:
+            queue_display = f"Queue {queue_num}" if queue_num else "Not assigned"
+            status_display = status if status else "No Queue"
+            tree.insert("", "end", values=(window_num, queue_display, status_display))
+
+    def fetch_windows_data(self):
+        try:
+            # Fetch all windows and their currently assigned queue number (if any)
+            query = """
+            SELECT w.window_num, q.queue_num, q.status
+            FROM windows w
+            LEFT JOIN queue q ON w.window_num = q.window_num AND q.status = 'queuing'
+            GROUP BY w.window_num
+            """
+            self.cursor.execute(query)
+            windows_data = self.cursor.fetchall()
+            # Ensure each window number is unique with its latest queue
+            unique_windows = {}
+            for window_num, queue_num, status in windows_data:
+                if window_num not in unique_windows:
+                    unique_windows[window_num] = (queue_num, status)
+            return [(window_num, queue_num, status) for window_num, (queue_num, status) in unique_windows.items()]
+        except Exception as e:
+            print("Error fetching windows data:", e)
+            return []
+
+    def fetch_queue_data(self, status):
+        try:
+            # Fetch data from the 'queue' table with the specified status
+            query = "SELECT queue_num, status FROM queue WHERE status = %s"
+            self.cursor.execute(query, (status,))
+            queue_data = self.cursor.fetchall()
+            return queue_data
+        except Exception as e:
+            print(f"Error fetching {status} queue data:", e)
+            return []
+
+
+
+
+
+    # WINDOWS
+
+    def open_window_interface(self, username):
+        def reopen_window():
+            window_root.destroy()  # Close the current window interface
+            self.open_window_interface(username)  # Open a new instance of the window interface
+
+        window_root = Tk()
+        window_root.title("Window Interface")
+        window_root.geometry("1100x580+150+130")
+
+        main_frame = Frame(window_root, bg="black")  # Set background color to black
+        main_frame.pack(fill=BOTH, expand=True)  # Added padx for space on the sides
+
+        window_num = username
+
+        # Display the window number outside the frame, centered with large font
+        window_num_label = Label(main_frame, text=f"Window Name: {window_num}", font=("Arial", 20), bg="black",
+                                 fg="white")
+        window_num_label.pack(pady=22)
+
+        # Create a frame for the box-like structure
+        box_frame = Frame(main_frame, bg="#868a8f", padx=20, pady=10)
+        box_frame.pack(fill=BOTH, expand=True, padx=25)
+
+        # Fetch queue number and student details from the database
+        queue_number, student_name, student_type = self.fetch_queue_info(username)
+
+        # Display the queue number centered with large font
+        queue_label = Label(box_frame, text=f"Queue Number: {queue_number}", font=("Arial", 65), bg="#868a8f",
+                            fg="black")
+        queue_label.pack(pady=100)
+
+        # Display student details at the bottom with average font size
+        student_label = Label(box_frame, text=f"Student Name: {student_name}", font=("Arial", 16), bg="#868a8f",
+                              fg="black")
+        student_label.pack(padx=170)
+
+        type_label = Label(box_frame, text=f"Transaction Type: {student_type}", font=("Arial", 16), bg="#868a8f",
+                           fg="black")
+        type_label.pack()
+
+        button_frame = Frame(main_frame, bg="black")
+        button_frame.pack(pady=10)
+
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        # Configure the style for the buttons
+        style.configure("Hover.TButton", background="green", foreground="green")
+        style.map("Hover.TButton",
+                  foreground=[('active', 'green')],
+                  background=[('active', 'green')])
+
+        call_button = ttk.Button(button_frame, text="Call Next Student",
+                                 command=lambda: [self.call_next(queue_number), reopen_window()],
+                                 style="Hover.TButton")
+        call_button.pack(side=LEFT, padx=5)
+
+        failed_button = ttk.Button(button_frame, text="Mark as Failed",
+                                   command=lambda: [self.mark_as_failed(queue_number), reopen_window()],
+                                   style="Hover.TButton")
+        failed_button.pack(side=LEFT, padx=5)
+
+        self.status_button = ttk.Button(button_frame, text="Change Status", command=self.toggle_status,
+                                        style="Hover.TButton")
+        self.status_button.pack(side=LEFT, padx=5)
+
+        logout_button = ttk.Button(button_frame, text="Logout", command=self.logout, style="Hover.TButton")
+        logout_button.pack(side=LEFT, padx=5)
+
+        window_root.mainloop()
+
+    def toggle_status(self):
+        current_status = self.status_var.get()
+        new_status = "Closed" if current_status == "Available" else "Available"
+        self.status_var.set(new_status)
+        self.status_button.config(text=f"Status: {new_status}")  # Update the button text
+
+        # Update the status in the database
+        try:
+            window_num = "window1"  # Assuming you want to update window1's status
+            update_query = "UPDATE windows SET status = %s WHERE window_num = %s"
+            self.cursor.execute(update_query, (new_status, window_num))
+            self.conn.commit()
+            print("Window status updated successfully.")
+        except Exception as e:
+            print("Error updating window status:", e)
+
+    def call_next(self, queue_number):
+        # Dummy function for calling next student
+        print(f"Calling next student from queue {queue_number}")
+
+    def mark_as_failed(self, queue_number):
+        # Dummy function for marking as failed
+        print(f"Marking queue {queue_number} as failed")
+
+    def window_interface_status_change(self, status, window_num):
+        # Dummy function for updating window status
+        print(f"Updating status of window {window_num} to {status}")
+
+    def logout(self):
+        # Dummy function for logging out
+        print("Logging out")
+
+    def fetch_queue_info(self, window_number):
+        try:
+            # Check for priority queues first
+            priority_query = "SELECT queue_num, student_name, type FROM queue WHERE status = 'priority' ORDER BY queue_num ASC LIMIT 1"
+            self.cursor.execute(priority_query)
+            priority_result = self.cursor.fetchone()
+
+            if priority_result:
+                return priority_result[0], priority_result[1], priority_result[
+                    2]  # Return queue number, student name, and type
+
+            # If no priority queues, fetch regular queues
+            query = "SELECT queue_num, student_name, type FROM queue WHERE window_num = %s AND status = 'queuing' ORDER BY queue_num ASC LIMIT 1"
+            self.cursor.execute(query, (window_number,))
+            result = self.cursor.fetchone()
+
+            if result:
+                return result[0], result[1], result[2]  # Return queue number, student name, and type
+            else:
+                return "N/A", "N/A", "N/A"
+        except Exception as e:
+            print("Error executing SQL query:", e)
+            return "Error", "Error", "Error"
+
+    # Update the window_interface_status_change method in your Login class to accept the window_num argument
+    def window_interface_status_change(self, new_status, window_num):
+        try:
+            # Update the status of the window in the database
+            update_query = "UPDATE windows SET status = %s WHERE window_num = %s"
+            self.cursor.execute(update_query, (new_status, window_num))
+            self.conn.commit()
+
+            # Check if any rows were affected by the update
+            if self.cursor.rowcount > 0:
+                messagebox.showinfo("Success", f"Window Number {window_num} status updated to '{new_status}'")
+                self.window_root.withdraw()
+                self.open_window_interface(self.username.get())
+            else:
+                messagebox.showerror("Error", f"No window found with number {window_num}")
+
+        except Exception as e:
+            print("updating window status:", e)
+
+
+    def fetch_queue_number(self, window_number):
+        try:
+            query = "SELECT queue_num FROM queue WHERE window_num = %s AND status = 'queuing'"
+            self.cursor.execute(query, (window_number,))
+            result = self.cursor.fetchone()
+
+            if result:
+                return result[0]
+            else:
+                return "N/A"
+        except Exception as e:
+            print("Error executing SQL query:", e)
+            return "Error"
+
+    def call_next(self, current_queue_num):
+        try:
+            print("Executing call_next function")
+            self.update_queue_status(current_queue_num, 'success')  # Update the status in the queue table
+
+            # Update the status in the windows table to 'Available'
+            self.from_window_update_status('Available')
+
+            # Fetch all results from previous queries before executing new ones
+            while self.cursor.nextset():
+                pass
+
+            # Fetch the next priority student from the database
+            next_priority_query = "SELECT queue_num FROM queue WHERE status = 'priority' ORDER BY queue_num ASC LIMIT 1"
+            self.cursor.execute(next_priority_query)
+            next_priority_data = self.cursor.fetchone()
+
+            if next_priority_data:
+                next_queue_num = next_priority_data[0]
+            else:
+                # Fetch the next available student from the database for this window
+                next_student_query = "SELECT queue_num FROM queue WHERE status = 'queuing' ORDER BY queue_num ASC LIMIT 1"
+                self.cursor.execute(next_student_query)
+                next_student_data = self.cursor.fetchone()
+
+                if next_student_data:
+                    next_queue_num = next_student_data[0]
+                else:
+                    next_queue_num = None
+
+            if next_queue_num:
+                messagebox.showinfo("Call Next Student", f"Calling next student with Queue Number {next_queue_num}")
+                self.update_ui(next_queue_num)  # Update the UI with the next student's information
+                self.window_root.withdraw()
+                self.student_root.withdraw()
+            else:
+                messagebox.showinfo("Call Next Student", "No student in queue")
+                print("No student in queue")
+        except Exception as ex:
+            self.conn.rollback()
+            print("Error in call_next function:", ex)
+
+    def update_queue_status(self, queue_num, new_status):
+        try:
+            # Fetch all results from previous queries before executing new ones
+            while self.cursor.nextset():
+                pass
+
+            # Update the status of the queue number in the database
+            update_query = "UPDATE queue SET status = %s WHERE queue_num = %s"
+            self.cursor.execute(update_query, (new_status, queue_num))
+            self.conn.commit()
+            messagebox.showinfo("Success", f"Queue Number {queue_num} status updated to '{new_status}'")
+            self.window_root.withdraw()
+
+            self.open_window_interface(self.username.get())
+
+        except Exception as ex:
+            self.conn.rollback()
+            print("Error updating status:", ex)
+
+    def mark_as_failed(self, queue_number):
+        try:
+            # Consume all pending results before executing new queries
+            while self.cursor.nextset():
+                pass
+
+            self.update_queue_status(queue_number, 'failed')
+            messagebox.showinfo("Mark as Failed", f"Queue Number {queue_number} marked as 'failed'")
+        except Exception as e:
+            print("Error marking as failed:", e)
+            messagebox.showerror("Error", "Failed to mark queue as 'failed'")
+
+    def logout(self):
+        if self.window_root:
+            self.window_root.withdraw()  # Destroy the window interface if it exists
+            print("Window interface destroyed")
+        else:
+            print("Window interface not initialized")
+        self.root.deiconify()  # Show the main login window
+
+    def display_queuing_students(self):
+        self.queue_window = Toplevel(self.root)
+        self.queue_window.title("Queuing Students")
+        self.queue_window.geometry("400x300")
+
+        queue_label = Label(self.queue_window, text="Queuing Students", font=("Arial", 20))
+        queue_label.pack()
+
+        # Fetch queuing students from the database
+        queuing_query = "SELECT queue_num, window_num FROM queue WHERE status = 'queuing'"
+        self.cursor.execute(queuing_query)
+        queuing_data = self.cursor.fetchall()
+
+        if queuing_data:
+            for queue_num, window_num in queuing_data:
+                student_label = Label(self.queue_window, text=f"Queue Number: {queue_num}, Window Number: {window_num}")
+                student_label.pack()
+        else:
+            no_student_label = Label(self.queue_window, text="No queuing students found")
+            no_student_label.pack()
+
+
+
+
+
+
+
+            #ADMIN
+
+    def open_admin_interface(self):
+        self.admin_root = Toplevel(self.root)
+        self.admin_root.title("Admin Interface")
+        self.admin_root.geometry("1388x600+50+100")  # Expand the geometry to fit the dashboard
+        self.admin_root.resizable(False, False)
+
+        # Style for the buttons
+        style = ttk.Style()
+        style.theme_use("clam")  # Use the 'clam' theme for consistent styling
+        style.configure("Admin.TButton", background="black", foreground="white", padding=5)
+
+        # Hover effect configuration
+        style.map("Admin.TButton",
+                  foreground=[('active', 'white')],  # Change foreground to green on hover
+                  background=[('active', 'green')])  # Keep background black on hover
+
+        # Dashboard Frame
+        dashboard_frame = Frame(self.admin_root, bg="black")
+        dashboard_frame.pack(fill=BOTH, expand=True)
+
+        # Create a frame for the dashboard title and buttons
+        title_buttons_frame = Frame(dashboard_frame, bg="black")
+        title_buttons_frame.pack(side=TOP, fill=X, padx=10, pady=5)
+
+        # Dashboard Title
+        dashboard_title = Label(title_buttons_frame, text="ADMIN Dashboard", font=("Arial", 24, "bold"), bg="black",
+                                fg="white")
+        dashboard_title.pack(side=LEFT, padx=(20, 0))
+
+        # Buttons Frame
+        buttons_frame = Frame(title_buttons_frame, bg="black")
+        buttons_frame.pack(side=RIGHT)
+
+        # Add Student Button with hover effect
+        add_student_btn = ttk.Button(buttons_frame, text="Create Queue", command=self.add_student, style="Admin.TButton")
+        add_student_btn.pack(side=RIGHT, padx=5)
+
+        # Display Windows Button with hover effect
+        display_windows_btn = ttk.Button(buttons_frame, text="All Windows", command=self.display_windows_interface,
+                                         style="Admin.TButton")
+        display_windows_btn.pack(side=RIGHT, padx=5)
+
+        # Report Button with hover effect
+        report_btn = ttk.Button(buttons_frame, text="Report", command=self.show_report, style="Admin.TButton")
+        report_btn.pack(side=RIGHT, padx=5)
+
+        # Logout Button with hover effect
+        logout_btn = ttk.Button(buttons_frame, text="Logout", command=self.admin_out, style="Admin.TButton")
+        logout_btn.pack(side=RIGHT, padx=5)
+
+        # Create a frame for the dashboard contents with left and right padding
+        dashboard_content_frame = Frame(dashboard_frame, bg="black", padx=20, pady=10)  # Adjusted pady here
+        dashboard_content_frame.pack(fill=BOTH, expand=True)
+
+        # Fetch data from the database to populate the dashboard
+        dashboard_data = self.fetch_dashboard_data()
+
+        if dashboard_data:
+            # Dashboard Table
+            columns = ("Student Name", "Queue Number", "Type", "Window Number", "Status", "Date", "Time")
+            dashboard_table = ttk.Treeview(dashboard_content_frame, columns=columns, show="headings")
+
+            for col in columns:
+                dashboard_table.heading(col, text=col)
+
+            for data in dashboard_data:
+                dashboard_table.insert("", "end", values=data)
+
+            dashboard_table.pack(fill=BOTH, expand=True)
+        else:
+            # No data message
+            no_data_label = Label(dashboard_content_frame, text="No data available", font=("Arial", 16), bg="white")
+            no_data_label.pack(pady=20)
+
+    def show_report(self):
+        self.open_report_interface()
+    def open_report_interface(self):
+        report_window = Toplevel(self.admin_root)
+        report_window.title("Report")
+        report_window.geometry("800x600+300+100")
+        report_window.configure(bg="black")
+
+        # Report Label
+        report_label = Label(report_window, text="Queue Report", font=("Arial", 24, "bold"), bg="black", fg="white")
+        report_label.pack(pady=10)
+
+        # Frame for filter options
+        filter_frame = Frame(report_window, bg="black")
+        filter_frame.pack(fill=X, padx=20, pady=10)
+
+        # Date filter with calendar
+        date_label = Label(filter_frame, text="Date:", bg="black", fg="white")
+        date_label.pack(side=LEFT, padx=5)
+
+        self.date_var = StringVar()
+        self.date_entry = DateEntry(filter_frame, textvariable=self.date_var, date_pattern='yyyy-mm-dd')
+        self.date_entry.pack(side=LEFT, padx=5)
+
+        # Status filter
+        status_label = Label(filter_frame, text="Status:", bg="black", fg="white")
+        status_label.pack(side=LEFT, padx=5)
+
+        self.status_var = StringVar()
+        self.status_var.set("All")
+        status_dropdown = ttk.Combobox(filter_frame, textvariable=self.status_var, values=["All", "success", "failed"])
+        status_dropdown.pack(side=LEFT, padx=5)
+
+        # Apply Filter Button
+        apply_filter_button = Button(filter_frame, text="Apply Filter", command=self.apply_report_filter)
+        apply_filter_button.pack(side=LEFT, padx=5)
+
+        # Frame for report table
+        report_frame = Frame(report_window, bg="white")
+        report_frame.pack(fill=BOTH, expand=True, padx=20, pady=10)
+
+        # Report Table
+        columns = ("Queue Number", "Status", "Date", "Time")
+        self.report_table = ttk.Treeview(report_frame, columns=columns, show="headings")
+        for col in columns:
+            self.report_table.heading(col, text=col)
+        self.report_table.pack(fill=BOTH, expand=True)
+
+        # Add a scrollbar to the treeview
+        scrollbar = ttk.Scrollbar(report_frame, orient="vertical", command=self.report_table.yview)
+        self.report_table.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side=RIGHT, fill=Y)
+
+        # Load initial data
+        self.load_report_data()
+
+    def load_report_data(self):
+        try:
+            query = "SELECT queue_num, status, date, time FROM queue WHERE status IN ('success', 'failed')"
+            self.cursor.execute(query)
+            report_data = self.cursor.fetchall()
+
+            # Clear existing data
+            for row in self.report_table.get_children():
+                self.report_table.delete(row)
+
+            # Insert new data
+            for data in report_data:
+                self.report_table.insert("", "end", values=data)
+        except Exception as e:
+            print("Error fetching report data:", e)
+
+    def apply_report_filter(self):
+        try:
+            date_filter = self.date_var.get()
+            status_filter = self.status_var.get()
+
+            query = "SELECT queue_num, status, date, time FROM queue WHERE status IN ('success', 'failed')"
+            filters = []
+
+            if date_filter:
+                filters.append(f"date = '{date_filter}'")
+            if status_filter and status_filter != "All":
+                filters.append(f"status = '{status_filter}'")
+
+            if filters:
+                query += " AND " + " AND ".join(filters)
+
+            query += " ORDER BY date, status"
+
+            self.cursor.execute(query)
+            filtered_data = self.cursor.fetchall()
+
+            # Clear existing data
+            for row in self.report_table.get_children():
+                self.report_table.delete(row)
+
+            # Insert new data
+            for data in filtered_data:
+                self.report_table.insert("", "end", values=data)
+        except Exception as e:
+            print("Error applying report filter:", e)
+
+    def fetch_dashboard_data(self):
+        try:
+            # Fetch data from the 'queue' table with status 'queuing'
+            query = "SELECT student_name, queue_num, type, window_num, status, date, time FROM queue WHERE status IN ('queuing')"
+            self.cursor.execute(query)
+            dashboard_data = self.cursor.fetchall()
+            return dashboard_data
+        except Exception as e:
+            print("Error fetching dashboard data:", e)
+            return []
+
+    def display_dashboard(self):
+        try:
+            # Fetch queue information from the database
+            queue_query = "SELECT student_name, queue_num, type, window_num, status, date, time FROM queue"
+            self.cursor.execute(queue_query)
+            queue_data = self.cursor.fetchall()
+
+            # Create a new window for the dashboard display
+            dashboard_window = Toplevel(self.admin_root)
+            dashboard_window.title("Dashboard")
+            dashboard_window.geometry("800x600")
+
+            # Create a treeview widget to display dashboard information in a column row format
+            tree = ttk.Treeview(dashboard_window, columns=(
+                "Student Name", "Queue Number", "Type", "Window Number", "Status", "Date", "Time"), show="headings")
+            tree.heading("#1", text="Student Name")
+            tree.heading("#2", text="Queue Number")
+            tree.heading("#3", text="Transaction Type")
+            tree.heading("#4", text="Cater by")
+            tree.heading("#5", text="Status")
+            tree.heading("#6", text="Date")
+            tree.heading("#7", text="Time")
+            tree.pack(expand=True, fill='both')
+
+            # Insert queue data into the treeview
+            for row in queue_data:
+                # Check the status and set the background color accordingly
+                if row[4] == 'failed':
+                    tree.insert("", "end", values=row, tags=('failed',))
+                elif row[4] == 'success':
+                    tree.insert("", "end", values=row, tags=('success',))
+
+            # Define tag configuration for background colors
+            tree.tag_configure('failed', background='red')
+            tree.tag_configure('success', background='green')
+
+        except Exception as e:
+            print("Error fetching dashboard information:", e)
+
+    def admin_out(self):
+        messagebox.showinfo("Messagebox", "logout as admin", parent=self.root)
+        self.root.deiconify()
+        self.admin_root.destroy()
+
+    def add_student(self):
+        self.add_student_window = Toplevel(self.root)
+        self.add_student_window.title("Create Queue")
+        self.add_student_window.geometry("400x240+520+320")  # Adjusted height to accommodate the new field
+        self.add_student_window.config(bg="black")  # Set background to black
+
+        student_name_label = Label(self.add_student_window, text="Student Name:", bg="black", fg="white")
+        student_name_label.pack()
+
+        self.student_name_entry = Entry(self.add_student_window)
+        self.student_name_entry.pack()
+
+        type_label = Label(self.add_student_window, text="Purpose:", bg="black", fg="white")
+        type_label.pack()
+
+        self.type_var = StringVar()
+        self.type_dropdown = ttk.Combobox(self.add_student_window, textvariable=self.type_var,
+                                          values=["Purpose1", "Purpose2", "Purpose3"])
+        self.type_dropdown.pack()
+
+        # Fetch window IDs from the 'windows' table
+        window_query = "SELECT window_num FROM windows"
+        self.cursor.execute(window_query)
+        window_data = self.cursor.fetchall()
+        window_numbers = [window[0] for window in window_data]
+
+        # Add "Auto Assign" option to the window numbers and set it as the first item
+        window_numbers.insert(0, "Auto Assign")
+
+        window_label = Label(self.add_student_window, text="Select Window Number:", bg="black", fg="white")
+        window_label.pack()
+
+        self.window_num_var = StringVar()
+        self.window_num_var.set(window_numbers[0])
+        window_dropdown = ttk.Combobox(self.add_student_window, textvariable=self.window_num_var, values=window_numbers)
+        window_dropdown.pack()
+
+        # Priority Checkbox
+        self.priority_var = IntVar()  # Use IntVar to handle checkbox state (0 or 1)
+        priority_checkbox = Checkbutton(self.add_student_window, text="Priority", variable=self.priority_var,
+                                        bg="black", fg="white", selectcolor="black")
+        priority_checkbox.pack()
+
+        # Create a frame for buttons with black background and add spacing between buttons
+        buttons_frame = Frame(self.add_student_window, bg="black")
+        buttons_frame.pack(pady=(18, 0))  # Add bottom margin to the buttons frame
+
+        back_button = Button(buttons_frame, text="Back", command=self.add_student_window.destroy, width=10)
+        back_button.pack(side=LEFT, padx=5)
+
+        submit_button = Button(buttons_frame, text="Submit", command=self.submit_function, width=10)
+        submit_button.pack(side=RIGHT, padx=5)
+
+    def submit_function(self):
+        student_name = self.student_name_entry.get()
+        type_val = self.type_var.get()
+        date_val = datetime.now().strftime("%Y-%m-%d")
+        time_val = datetime.now().strftime("%H:%M:%S")
+        priority_checked = self.priority_var.get() == 1  # Check if the priority checkbox is checked
+
+        if student_name == "" or type_val == "":
+            messagebox.showerror("Error", "Student Name and Purpose are required", parent=self.root)
+        else:
+            try:
+                window_num = self.window_num_var.get()
+                print("Selected Window:", window_num)  # Debugging output
+
+                if window_num == "Auto Assign":
+                    # Fetch all available windows
+                    all_windows_query = "SELECT window_num, status FROM windows"
+                    self.cursor.execute(all_windows_query)
+                    all_windows_data = self.cursor.fetchall()
+
+                    # Filter available windows based on status
+                    available_windows = [window[0] for window in all_windows_data if window[1] == 'Available']
+
+                    if not available_windows:
+                        messagebox.showerror("Error", "No available windows to assign the queue", parent=self.root)
+                        return
+
+                    # Increment the last assigned window index and wrap around if needed
+                    Login.last_assigned_window_index = (Login.last_assigned_window_index + 1) % len(available_windows)
+                    window_num = available_windows[Login.last_assigned_window_index]
+
+                    print("Next Assigned Window:", window_num)  # Debugging output
+
+                # Check if the selected window status is 'Available'
+                window_status_query = "SELECT status FROM windows WHERE window_num = %s"
+                self.cursor.execute(window_status_query, (window_num,))
+                window_status_result = self.cursor.fetchone()
+                window_status = window_status_result[0] if window_status_result else None
+
+                if window_status == 'Available':
+                    # Get the next queue number
+                    max_queue_query = "SELECT MAX(queue_num) FROM queue"
+                    self.cursor.execute(max_queue_query)
+                    max_queue_result = self.cursor.fetchone()
+                    max_queue = max_queue_result[0] if max_queue_result[0] is not None else 0
+                    next_queue_number = int(max_queue) + 1
+                    print("Next Queue Number:", next_queue_number)  # Debugging output
+
+                    # Determine status based on priority checkbox
+                    status = "priority" if priority_checked else "queuing"
+
+                    # Insert the student into the queue with assigned window
+                    query = "INSERT INTO queue (student_name, queue_num, type, window_num, status, date, time) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                    values = (student_name, next_queue_number, type_val, window_num, status, date_val, time_val)
+                    self.cursor.execute(query, values)
+                    self.conn.commit()
+
+                    messagebox.showinfo("Success", "Student added successfully", parent=self.root)
+                    self.add_student_window.destroy()  # Close the add_student interface
+                    self.admin_root.destroy()  # Close the current admin interface
+                    self.open_admin_interface()
+                elif window_status == 'Closed':
+                    messagebox.showerror("Error", "Selected window is closed. Cannot assign a queue number.",
+                                         parent=self.root)
+                else:
+                    messagebox.showerror("Error", "Selected window is not available. Cannot assign a queue number.",
+                                         parent=self.root)
+
+            except mysql.connector.Error as e:
+                print("MySQL Error:", e)
+                messagebox.showerror("Error", "Database error occurred while adding student", parent=self.root)
+
+    def display_windows_interface(self):
+        try:
+            # Fetch window information from the database
+            window_query = "SELECT window_num, status FROM windows"
+            self.cursor.execute(window_query)
+            window_data = self.cursor.fetchall()
+
+            # Create a new window for displaying window information
+            display_window = Toplevel(self.admin_root)
+            display_window.title("Window Information")
+            display_window.geometry("500x370+520+250")  # Set the geometry as needed
+            display_window.resizable(False, False)  # Disable resizing
+
+            # Create a treeview widget to display window information in a column row format
+            tree = ttk.Treeview(display_window, columns=("Window Number", "Status"), show="headings")
+            tree.heading("#1", text="Window Number")
+            tree.heading("#2", text="Status")
+            tree.pack(fill="both", expand=True)  # Pack the treeview widget
+
+            # Insert window data into the treeview
+            for window_num, status in window_data:
+                tree.insert("", "end", values=(window_num, status))
+
+        except Exception as e:
+            print("Error fetching window information:", e)
+
+        back_button = Button(display_window, text="Back", command=display_window.destroy, width=10)
+        back_button.pack(side=BOTTOM, pady=10)
+
+    def update_window_status(self, window_num):
+        try:
+            print("Executing update_window_status function")
+            print("Window Number:", window_num)
+
+            # Update the status of the selected window in the database
+            update_query = "UPDATE windows SET status = 'Updated' WHERE window_num = %s"
+            print("Executing update query:", update_query)
+            self.cursor.execute(update_query, (window_num,))
+            self.conn.commit()
+
+            print("Status update successful.")
+
+            # Refresh the display after updating the status
+            self.display_windows()
+        except mysql.connector.Error as sql_error:
+            self.conn.rollback()  # Rollback changes if an error occurs
+            print("MySQL Error:", sql_error)
+            messagebox.showerror("Error", f"MySQL Error: {sql_error}")
+        except Exception as e:
+            self.conn.rollback()  # Rollback changes if an error occurs
+            print("Error updating status:", e)
+            messagebox.showerror("Error", f"Error updating status: {str(e)}")
+
+    def update_interface(self):
+        # Example logic to update the interface
+        while True:
+            # Check shared_data and update the interface elements as needed
+            self.root.after(1000, self.update_labels)  # Update every second
+
+    def update_labels(self):
+        # Logic to update labels or other elements in the interface
+        pass
+root = Tk()
+obj = Login(root)
+root.mainloop()
